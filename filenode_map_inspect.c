@@ -69,9 +69,10 @@ typedef struct RelMapFile
 } RelMapFile;
 
 
-void _PG_init(void);
 
-/* SQL functions */
+/* public functions */
+
+void _PG_init(void);
 
 Datum filenode_map_check(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(filenode_map_check);
@@ -240,31 +241,91 @@ Datum filenode_map_check(PG_FUNCTION_ARGS)
 
 Datum filenode_map_list(PG_FUNCTION_ARGS)
 {
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+
 	RelMapFile *map = NULL;
 	char		mapfilename[MAXPGPATH];
 	int			i;
 
+	MemoryContext per_query_ctx;
+	MemoryContext oldcontext;
+	TupleDesc	tupdesc;
+	Tuplestorestate *tupstore;
+
+	/* check to see if caller supports this function returning a tuplestore */
+
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+
+	if (!(rsinfo->allowedModes & SFRM_Materialize))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("materialize mode required, but it is not " \
+						"allowed in this context")));
+
+	/* Switch into long-lived context to construct returned data structures */
+	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+	oldcontext = MemoryContextSwitchTo(per_query_ctx);
+
+	/* Build a tuple descriptor for function's result type */
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		elog(ERROR, "return type must be a row type");
+
+	tupstore = tuplestore_begin_heap(true, false, work_mem);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setResult = tupstore;
+	rsinfo->setDesc = tupdesc;
+
+	MemoryContextSwitchTo(oldcontext);
+
 	snprintf(mapfilename, sizeof(mapfilename), "%s/%s",
-				 DatabasePath, RELMAPPER_FILENAME);
+			 DatabasePath, RELMAPPER_FILENAME);
 
+	/*
+	 * If the file is unreadable, it's highly unlikely this function
+	 * will ever be executed, but just in case...
+	 */
 	if (read_relmap_file(mapfilename, (char **)&map) == false)
-		return file_access_error;
+	{
+		pfree(map);
 
-	elog(INFO, "num_mappings: %i", map->num_mappings);
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("unable to read pg_filenode.map file for this database")));
+	}
+
 
 	for (i = 0; i < map->num_mappings; i++)
 	{
 		Relation        rel;
 
+		Datum		values[3];
+		bool		nulls[3];
+
+		memset(values, 0, sizeof(values));
+		memset(nulls, 0, sizeof(nulls));
+
 		rel = relation_open(map->mappings[i].mapoid, AccessShareLock);
 
-		elog(INFO, "oid: %u, filenode: %u; name: %s",
-			 map->mappings[i].mapoid, map->mappings[i].mapfilenode, RelationGetRelationName(rel));
+		values[0] = CStringGetTextDatum(RelationGetRelationName(rel));
 
 		relation_close(rel, AccessShareLock);
+
+		values[1] = ObjectIdGetDatum(map->mappings[i].mapoid);
+		values[2] = ObjectIdGetDatum(map->mappings[i].mapfilenode);
+
+		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 	}
 
-	PG_RETURN_NULL();
+
+	pfree(map);
+
+	/* no more rows */
+	tuplestore_donestoring(tupstore);
+
+	return (Datum) 0;
 }
 
 

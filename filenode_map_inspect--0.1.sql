@@ -14,9 +14,9 @@ CREATE OR REPLACE FUNCTION filenode_map_check(
   LANGUAGE C STRICT VOLATILE PARALLEL UNSAFE;
 
 CREATE OR REPLACE FUNCTION filenode_map_list(
+    OUT relname TEXT,
     OUT oid OID,
-    out filenode OID,
-    out relname TEXT
+    OUT filenode OID
   )
   RETURNS SETOF record
   AS 'MODULE_PATHNAME'
