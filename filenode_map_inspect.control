@@ -1,0 +1,5 @@
+# filenode_map_inspect
+comment = 'Check and examine pg_filenode.map files'
+default_version = '0.1'
+module_pathname = '$libdir/filenode_map_inspect'
+relocatable = true
