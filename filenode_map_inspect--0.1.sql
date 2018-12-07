@@ -5,7 +5,9 @@
 
 
 CREATE OR REPLACE FUNCTION filenode_map_check(
-    OUT file TEXT
+	OUT database TEXT,
+    OUT file TEXT,
+	OUT state TEXT
   )
   RETURNS SETOF record
   AS 'MODULE_PATHNAME'
