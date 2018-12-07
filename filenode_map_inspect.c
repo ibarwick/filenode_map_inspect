@@ -17,6 +17,7 @@
 #include "catalog/pg_database.h"
 #include "storage/lwlock.h"
 #include "utils/builtins.h"
+#include "utils/rel.h"
 #include "utils/relmapper.h"
 
 #if (PG_VERSION_NUM >= 90300)
@@ -81,6 +82,7 @@ PG_FUNCTION_INFO_V1(filenode_map_list);
 /* internal functions */
 
 static FilenodeMapStatus check_relmap_file(const char *file);
+static bool read_relmap_file(const char *file, char **buffer);
 
 /*
  * Entrypoint of this module.
@@ -238,8 +240,33 @@ Datum filenode_map_check(PG_FUNCTION_ARGS)
 
 Datum filenode_map_list(PG_FUNCTION_ARGS)
 {
+	RelMapFile *map = NULL;
+	char		mapfilename[MAXPGPATH];
+	int			i;
+
+	snprintf(mapfilename, sizeof(mapfilename), "%s/%s",
+				 DatabasePath, RELMAPPER_FILENAME);
+
+	if (read_relmap_file(mapfilename, (char **)&map) == false)
+		return file_access_error;
+
+	elog(INFO, "num_mappings: %i", map->num_mappings);
+
+	for (i = 0; i < map->num_mappings; i++)
+	{
+		Relation        rel;
+
+		rel = relation_open(map->mappings[i].mapoid, AccessShareLock);
+
+		elog(INFO, "oid: %u, filenode: %u; name: %s",
+			 map->mappings[i].mapoid, map->mappings[i].mapfilenode, RelationGetRelationName(rel));
+
+		relation_close(rel, AccessShareLock);
+	}
+
 	PG_RETURN_NULL();
 }
+
 
 /**
  * check_relmap_file()
@@ -253,47 +280,10 @@ static FilenodeMapStatus
 check_relmap_file(const char *mapfilename)
 {
 	RelMapFile *map = NULL;
-	FILE	   *fp = NULL;
 	FilenodeMapStatus retval = file_ok;
-	char	   *buffer = NULL;
-	int			r;
 
-	buffer = palloc0(sizeof(RelMapFile));
-
-	fp = AllocateFile(mapfilename, PG_BINARY_R);
-
-	if (fp == NULL)
-	{
-		ereport(WARNING,
-				(errcode_for_file_access(),
-				 errmsg("could not open file \"%s\": %m",
-						mapfilename)));
-
+	if (read_relmap_file(mapfilename, (char **)&map) == false)
 		return file_access_error;
-	}
-
-	r = fread(buffer, 1, sizeof(RelMapFile), fp);
-
-	if (r != sizeof(RelMapFile))
-	{
-		if (r < 0)
-			ereport(WARNING,
-					(errcode_for_file_access(),
-					 errmsg("could not read file \"%s\": %m", mapfilename)));
-		else
-			ereport(WARNING,
-					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg("could not read file \"%s\": read %d of %zu",
-					 mapfilename, r, sizeof(RelMapFile))));
-
-		FreeFile(fp);
-		return file_access_error;
-	}
-
-
-	FreeFile(fp);
-
-	map = (RelMapFile *)buffer;
 
 	/* check for correct magic number, etc */
 	if (map->magic != RELMAPPER_FILEMAGIC ||
@@ -323,5 +313,52 @@ check_relmap_file(const char *mapfilename)
 		}
 	}
 
+	pfree(map);
+
 	return retval;
+}
+
+
+static bool
+read_relmap_file(const char *mapfilename, char **buffer)
+{
+	FILE	   *fp = NULL;
+	int			r;
+
+	*buffer = palloc0(sizeof(RelMapFile));
+
+	fp = AllocateFile(mapfilename, PG_BINARY_R);
+
+	if (fp == NULL)
+	{
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\": %m",
+						mapfilename)));
+
+		return false;
+	}
+
+	r = fread(*buffer, 1, sizeof(RelMapFile), fp);
+
+	if (r != sizeof(RelMapFile))
+	{
+		if (r < 0)
+			ereport(WARNING,
+					(errcode_for_file_access(),
+					 errmsg("could not read file \"%s\": %m", mapfilename)));
+		else
+			ereport(WARNING,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("could not read file \"%s\": read %d of %zu",
+					 mapfilename, r, sizeof(RelMapFile))));
+
+		FreeFile(fp);
+
+		return false;
+	}
+
+	FreeFile(fp);
+
+	return true;
 }
