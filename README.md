@@ -10,9 +10,8 @@ USE AT YOUR OWN RISK!
 Requirements
 ------------
 
-This extension will compile with PostgreSQL 9.6 or later (though
-it should be possible to adapt it easily to earlier versions back
-to 9.0, where `pg_filenode.map` was introduced).
+This extension will compile with all PostgreSQL versions from 9.0 (where
+`pg_filenode.map` was introduced).
 
 Functions
 ---------

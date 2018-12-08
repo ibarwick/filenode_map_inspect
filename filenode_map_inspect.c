@@ -20,10 +20,18 @@
 #include "utils/rel.h"
 #include "utils/relmapper.h"
 
+
 #if (PG_VERSION_NUM >= 90300)
 #include "access/htup_details.h"
 #endif
 
+#if (PG_VERSION_NUM < 90600)
+#include "storage/fd.h"
+#endif
+
+#if (PG_VERSION_NUM < 90400)
+#include "utils/tqual.h"
+#endif
 
 PG_MODULE_MAGIC;
 
@@ -64,7 +72,11 @@ typedef struct RelMapFile
 	int32		magic;			/* always RELMAPPER_FILEMAGIC */
 	int32		num_mappings;	/* number of valid RelMapping entries */
 	RelMapping	mappings[MAX_MAPPINGS];
+#if (PG_VERSION_NUM >= 90500)
 	pg_crc32c	crc;			/* CRC of all above */
+#else
+	int32		crc;			/* CRC of all above */
+#endif
 	int32		pad;			/* to make the struct size be 512 exactly */
 } RelMapFile;
 
@@ -138,7 +150,11 @@ Datum filenode_map_check(PG_FUNCTION_ARGS)
 	 */
 
 	rel = heap_open(DatabaseRelationId, AccessShareLock);
+#if (PG_VERSION_NUM >= 90400)
 	scan = heap_beginscan_catalog(rel, 0, NULL);
+#else
+	scan = heap_beginscan(rel, SnapshotNow, 0, NULL);
+#endif
 
 	while (HeapTupleIsValid(tup = heap_getnext(scan, ForwardScanDirection)))
 	{
@@ -358,14 +374,24 @@ check_relmap_file(const char *mapfilename)
 	}
 	else
 	{
+#if (PG_VERSION_NUM >= 90500)
 		pg_crc32c	crc;
-
 		/* verify the CRC */
 		INIT_CRC32C(crc);
 		COMP_CRC32C(crc, (char *) map, offsetof(RelMapFile, crc));
 		FIN_CRC32C(crc);
 
 		if (!EQ_CRC32C(crc, map->crc))
+#else
+		pg_crc32	crc;
+		/* verify the CRC */
+		INIT_CRC32(crc);
+		COMP_CRC32(crc, (char *) map, offsetof(RelMapFile, crc));
+		FIN_CRC32(crc);
+
+		if (!EQ_CRC32(crc, map->crc))
+#endif
+
 		{
 			ereport(WARNING,
 					(errmsg("relation mapping file \"%s\" contains incorrect checksum",
