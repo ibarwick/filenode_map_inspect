@@ -19,8 +19,11 @@ Functions
  - `filenode_map_check()`: lists the location of all `pg_filenode.map` files
       present in the database cluster, and verifies their status.
 
- - `filenode_map_list()`:  lists name, oid and filenode of the current database's
-      `pg_filenode.map` file
+ - `filenode_map_list()`:  lists name, oid and filenode of entries in the current
+      database's `pg_filenode.map` file
+
+ - `filenode_map_list_global()`:  lists name, oid and filenode entries in the
+      global `pg_filenode.map` file
 
 Examples
 --------
@@ -64,8 +67,6 @@ Output of `filenode_map_list()`:
 	 pg_type_typname_nsp_index         | 2704 |     2704
 	(15 rows)
 
-Note that currently this cannot display the contents of the global `pg_filenode.map`
-file.
 
 Notes
 -----

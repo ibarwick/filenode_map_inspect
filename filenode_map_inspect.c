@@ -92,10 +92,14 @@ PG_FUNCTION_INFO_V1(filenode_map_check);
 Datum filenode_map_list(PG_FUNCTION_ARGS);
 PG_FUNCTION_INFO_V1(filenode_map_list);
 
+Datum filenode_map_list_global(PG_FUNCTION_ARGS);
+PG_FUNCTION_INFO_V1(filenode_map_list_global);
+
 /* internal functions */
 
 static FilenodeMapStatus check_relmap_file(const char *file);
 static bool read_relmap_file(const char *file, char **buffer);
+static void filenode_map_list_internal(FunctionCallInfo fcinfo, const char *mapfilename);
 
 /*
  * Entrypoint of this module.
@@ -249,6 +253,7 @@ Datum filenode_map_check(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
+
 /**
  * filenode_map_list()
  *
@@ -257,10 +262,42 @@ Datum filenode_map_check(PG_FUNCTION_ARGS)
 
 Datum filenode_map_list(PG_FUNCTION_ARGS)
 {
-	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
-
-	RelMapFile *map = NULL;
 	char		mapfilename[MAXPGPATH];
+
+	snprintf(mapfilename, sizeof(mapfilename), "%s/%s",
+			 DatabasePath, RELMAPPER_FILENAME);
+
+	filenode_map_list_internal(fcinfo, mapfilename);
+
+	return (Datum) 0;
+}
+
+
+/**
+ * filenode_map_list_global()
+ *
+ *
+ */
+
+Datum filenode_map_list_global(PG_FUNCTION_ARGS)
+{
+
+	char		mapfilename[MAXPGPATH];
+
+	snprintf(mapfilename, sizeof(mapfilename), "global/%s",
+			 RELMAPPER_FILENAME);
+
+	filenode_map_list_internal(fcinfo, mapfilename);
+
+	return (Datum) 0;
+}
+
+
+static void
+filenode_map_list_internal(FunctionCallInfo fcinfo, const char *mapfilename)
+{
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	RelMapFile *map = NULL;
 	int			i;
 
 	MemoryContext per_query_ctx;
@@ -295,9 +332,6 @@ Datum filenode_map_list(PG_FUNCTION_ARGS)
 	rsinfo->setDesc = tupdesc;
 
 	MemoryContextSwitchTo(oldcontext);
-
-	snprintf(mapfilename, sizeof(mapfilename), "%s/%s",
-			 DatabasePath, RELMAPPER_FILENAME);
 
 	/*
 	 * If the file is unreadable, it's highly unlikely this function
@@ -341,7 +375,6 @@ Datum filenode_map_list(PG_FUNCTION_ARGS)
 	/* no more rows */
 	tuplestore_donestoring(tupstore);
 
-	return (Datum) 0;
 }
 
 
